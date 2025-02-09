@@ -1,14 +1,9 @@
 """
 Vícevrstvá neuronová síť pro word embeddings s detailním vysvětlením backpropagace.
-Implementace zahrnuje:
-- Embedding vrstvu
-- Libovolný počet skrytých vrstev
-- Výstupní vrstvu
-- Detailní sledování chybovosti
 """
 
 import numpy as np
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Any, Optional
 from collections import defaultdict
 import time
 
@@ -94,15 +89,17 @@ class MultiLayerWordEmbedding:
                  vocab_size: int,
                  embedding_dim: int = 100,
                  hidden_layers: List[int] = [64, 32],
-                 activation: str = 'relu'):
+                 activation: str = 'relu',
+                 model_weights: Optional[Dict[str, Any]] = None):
         """
-        Inicializace modelu s více vrstvami.
+        Inicializace modelu s možností načtení existujících vah.
 
         Args:
             vocab_size: Velikost slovníku
             embedding_dim: Dimenze embedding vektorů
             hidden_layers: Seznam velikostí skrytých vrstev
             activation: Typ aktivační funkce ('relu' nebo 'tanh')
+            model_weights: Slovník s předtrénovanými vahami, nebo None pro nový model
         """
         self.vocab_size = vocab_size
         self.embedding_dim = embedding_dim
@@ -110,7 +107,6 @@ class MultiLayerWordEmbedding:
         # Inicializace vrstev
         self.embedding_layer = Layer(vocab_size, embedding_dim)
 
-        # Vytvoření skrytých vrstev
         self.layers = []
         current_dim = embedding_dim
         for hidden_dim in hidden_layers:
@@ -118,12 +114,33 @@ class MultiLayerWordEmbedding:
             self.layers.append(ActivationLayer(activation))
             current_dim = hidden_dim
 
-        # Výstupní vrstva
         self.output_layer = Layer(current_dim, vocab_size)
+
+        # Načtení vah, pokud jsou k dispozici
+        if model_weights is not None:
+            self.load_weights(model_weights)
 
         # Statistiky trénování
         self.training_stats = defaultdict(list)
         self.epoch_stats = defaultdict(float)
+        self.best_loss = float('inf')
+
+    def load_weights(self, weights: Dict[str, Any]):
+        """Načte váhy do modelu."""
+        self.embedding_layer.weights = weights['embedding_weights']
+
+        hidden_weights = weights['hidden_weights']
+        hidden_biases = weights['hidden_biases']
+
+        weight_idx = 0
+        for layer in self.layers:
+            if isinstance(layer, Layer):
+                layer.weights = hidden_weights[weight_idx]
+                layer.bias = hidden_biases[weight_idx]
+                weight_idx += 1
+
+        self.output_layer.weights = weights['output_weights']
+        self.output_layer.bias = weights['output_bias']
 
     def forward(self, word_indices: List[int]) -> Tuple[np.ndarray, np.ndarray]:
         """
@@ -153,11 +170,6 @@ class MultiLayerWordEmbedding:
     def backward(self, word_indices: List[int], target_idx: int, learning_rate: float):
         """
         Zpětný průchod sítí (backpropagace).
-
-        Proces backpropagace:
-        1. Výpočet chyby na výstupu (rozdíl mezi predikcí a cílem)
-        2. Propagace chyby zpět přes všechny vrstvy
-        3. Aktualizace vah všech vrstev
 
         Args:
             word_indices: Seznam indexů kontextových slov
@@ -196,9 +208,7 @@ class MultiLayerWordEmbedding:
         self.epoch_stats['samples'] += 1
 
     def end_epoch(self):
-        """
-        Zpracování statistik na konci epochy.
-        """
+        """Zpracování statistik na konci epochy."""
         avg_loss = self.epoch_stats['loss'] / max(1, self.epoch_stats['samples'])
         self.training_stats['loss'].append(avg_loss)
         print(f"Průměrná ztráta: {avg_loss:.4f}")
@@ -213,7 +223,16 @@ class MultiLayerWordEmbedding:
         return exp_x / exp_x.sum()
 
     def get_similar_words(self, embedding: np.ndarray, top_k: int = 5) -> List[Tuple[int, float]]:
-        """Nalezení nejpodobnějších slov podle embedding vektoru."""
+        """
+        Nalezení nejpodobnějších slov podle embedding vektoru.
+
+        Args:
+            embedding: Vstupní embedding vektor
+            top_k: Počet nejpodobnějších slov k nalezení
+
+        Returns:
+            List[Tuple[int, float]]: Seznam (index slova, podobnost)
+        """
         # Kosinová podobnost mezi vstupním vektorem a všemi embeddingy
         similarities = np.dot(self.embedding_layer.weights, embedding) / (
             np.linalg.norm(self.embedding_layer.weights, axis=1) * np.linalg.norm(embedding)
@@ -224,6 +243,11 @@ class MultiLayerWordEmbedding:
     def print_training_progress(self, epoch: int, batch: int, total_batches: int):
         """
         Výpis průběhu trénování.
+
+        Args:
+            epoch: Číslo současné epochy
+            batch: Číslo současného batche
+            total_batches: Celkový počet batchů
         """
         avg_loss = self.epoch_stats['loss'] / max(1, self.epoch_stats['samples'])
         progress = batch / total_batches * 100
