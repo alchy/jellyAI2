@@ -1,0 +1,10 @@
+# Základní knihovny pro práci s numerickými výpočty
+numpy
+
+# Knihovny pro práci se systémem a časem
+python-dateutil
+pytz
+
+# Volitelné knihovny pro pokročilou práci s textem (lze odstranit, pokud nejsou potřeba)
+# nltk>=3.6.0
+# scikit-learn>=0.24.0
